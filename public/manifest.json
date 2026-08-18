@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "AI Reading Companion",
+  "version": "0.1.0",
+  "description": "Select text on any webpage and ask AI about it — grounded in the page you're reading.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "src/settings/index.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "AI Reading Companion — Settings"
+  }
+}

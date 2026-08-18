@@ -1,0 +1,17 @@
+{
+  "name": "ai-reading-companion",
+  "version": "0.1.0",
+  "description": "Select text on any webpage and ask AI about it — an inline reading companion.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development & vite build --config vite.content.config.ts --watch --mode development",
+    "build": "tsc --noEmit && vite build && vite build --config vite.content.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.19.43",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}
