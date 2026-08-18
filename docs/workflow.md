@@ -145,29 +145,59 @@ Quick actions map to preset `question` strings:
 - **What does this mean?** → "What does this mean? Define any jargon."
 - **Challenge this** → "Critically challenge the argument or claim in this passage."
 
-### Provider abstraction
-`src/providers/` isolates provider differences behind one interface:
+### Provider system (config-driven)
+Almost every provider speaks one of **two wire protocols**, so `src/providers/` is built
+around **adapters** (protocol) + **presets** (named config), not one file per provider.
 
+**Adapters** — the only code that knows a protocol:
 ```ts
-interface StreamProvider {
+type AdapterId = 'openai-compat' | 'anthropic';
+
+interface Adapter {
   stream(input: {
-    apiKey: string;
-    model: string;
-    system: string;
-    messages: ChatTurn[];
-    onDelta: (text: string) => void;
+    baseUrl: string; apiKey: string; model: string;
+    system: string; messages: ChatTurn[];
+    headers?: Record<string, string>;
+    onDelta: (text: string) => void; signal?: AbortSignal;
   }): Promise<void>;
 }
 ```
+- `openaiCompat.ts` → POSTs `{baseUrl}/chat/completions` with `Authorization: Bearer`,
+  parses SSE `choices[].delta.content`. Serves OpenAI, OpenRouter, Groq, Together,
+  Mistral, DeepSeek, xAI, Perplexity, Gemini (compat endpoint), Ollama/LM Studio, and
+  any custom OpenAI-compatible endpoint.
+- `anthropic.ts` → POSTs `{baseUrl}/v1/messages`, parses SSE `content_block_delta`.
 
-- `claude.ts` → calls the Anthropic Messages API with `stream: true`, parses SSE
-  `content_block_delta` events.
-- `openai.ts` → calls the OpenAI Chat Completions API with `stream: true`, parses SSE
-  `choices[].delta.content`.
-- `index.ts` → `getProvider(settings.provider)` returns the right one.
+**Presets** (`presets.ts`) — a provider is just data:
+```ts
+interface ProviderPreset {
+  id; label; adapter: AdapterId;
+  baseUrl; defaultModel; models?;
+  headers?;                 // e.g. OpenRouter attribution
+  apiKeyRequired: boolean;  // false for local Ollama / LM Studio
+  keyUrl?;                  // where to get a key (hint in settings)
+}
+```
+Adding a provider that reuses a protocol = **one preset entry, no new code**.
 
-The background worker calls `provider.stream(...)` and forwards each `onDelta` as a
-`CHUNK` over the port. Switching provider is purely a settings change.
+**Custom providers** — the user can add their own in Settings (label + adapter + base URL
++ default model). These are stored in settings and treated exactly like built-in presets.
+
+**Resolution** (`index.ts`) — `resolveActive(settings)` looks up the active preset (built-in
+or custom), merges the per-provider config (its own `apiKey`, `model`, optional `baseUrl`
+override), and returns `{ adapter, baseUrl, apiKey, model, headers }`. The background worker
+calls `adapter.stream(...)` and forwards each `onDelta` as a `CHUNK`. Switching provider —
+or adding a new one — is purely a settings change.
+
+**Storage schema** (`shared/types.ts`):
+```ts
+Settings = {
+  activeProviderId: string;
+  configs: Record<providerId, { apiKey; model; baseUrl? }>;  // per-provider keys
+  customProviders: CustomProvider[];
+}
+```
+Each provider keeps its **own** key and model, so switching never loses credentials.
 
 ---
 
@@ -178,8 +208,9 @@ The background worker calls `provider.stream(...)` and forwards each `onDelta` a
    actions + input.
 3. User picks a quick action or types a question and submits.
 4. Content script opens a `runtime.connect` port and posts an `AskRequest`.
-5. Background worker loads settings + API key, builds the prompt, picks the provider.
-6. Provider streams tokens; worker forwards each as a `CHUNK` over the port.
+5. Background worker loads settings, resolves the active provider (adapter + base URL +
+   key + model), and builds the prompt.
+6. The adapter streams tokens; worker forwards each as a `CHUNK` over the port.
 7. Content script appends deltas, rendering markdown live.
 8. On `DONE`, the turn is stored in the popover's in-memory history for follow-ups.
 9. Errors (missing key, HTTP error) come back as `ERROR` and render inline with a link

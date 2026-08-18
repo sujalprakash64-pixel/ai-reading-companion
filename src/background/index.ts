@@ -1,4 +1,4 @@
-import { getProvider } from '../providers';
+import { resolveActive } from '../providers';
 import { loadSettings } from '../shared/settings';
 import { buildSystemPrompt } from './prompt';
 import {
@@ -37,11 +37,20 @@ async function handleAsk(
 
   try {
     const settings = await loadSettings();
-    if (!settings.apiKey) {
+    const resolved = resolveActive(settings);
+    if (!resolved) {
       send({
         type: 'ERROR',
         requestId: req.requestId,
-        message: 'No API key set. Open the extension settings to add one.',
+        message: 'No provider selected. Open the extension settings to pick one.',
+      });
+      return;
+    }
+    if (resolved.preset.apiKeyRequired && !resolved.apiKey) {
+      send({
+        type: 'ERROR',
+        requestId: req.requestId,
+        message: `No API key set for ${resolved.preset.label}. Open settings to add one.`,
       });
       return;
     }
@@ -52,10 +61,11 @@ async function handleAsk(
       { role: 'user', content: req.question },
     ];
 
-    const provider = getProvider(settings.provider);
-    await provider.stream({
-      apiKey: settings.apiKey,
-      model: settings.model,
+    await resolved.adapter.stream({
+      baseUrl: resolved.baseUrl,
+      apiKey: resolved.apiKey,
+      model: resolved.model,
+      headers: resolved.headers,
       system,
       messages,
       signal,

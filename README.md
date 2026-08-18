@@ -9,7 +9,18 @@ selected passage plus the page's title and URL. Answers stream in without leavin
 - Compact popover with quick actions: **Explain · Summarize · What does this mean? · Challenge this** — plus a free-text box.
 - Selected text + page title + URL sent as grounding context.
 - **Streamed** markdown answers, with follow-up questions per selection.
-- **Configurable provider** — Claude or OpenAI — with your own API key stored locally.
+- **Configurable providers** — Anthropic, OpenAI, OpenRouter, Groq, Together, Mistral,
+  DeepSeek, xAI (Grok), Perplexity, Google Gemini, Ollama / LM Studio (local), **plus any
+  custom OpenAI- or Anthropic-compatible endpoint you add in Settings**. Each keeps its own
+  API key + model, stored locally.
+
+### Adding providers
+- **Reuses an existing protocol?** (OpenAI-compatible or Anthropic) → add one entry to
+  `src/providers/presets.ts`. No other code changes.
+- **From the UI, no code:** Settings → *Add a custom provider* → name, API type, base URL,
+  default model. It's then selectable like any built-in.
+- **A brand-new protocol?** add an adapter in `src/providers/` implementing the `Adapter`
+  interface and register it in `src/providers/index.ts`.
 
 ## How it works
 See [`docs/workflow.md`](docs/workflow.md) for the full write-up and
@@ -41,7 +52,7 @@ public/          manifest.json (copied to dist root)
 src/
   content/       selection detection + Shadow-DOM UI + streaming display
   background/    service worker, prompt builder
-  providers/     claude.ts, openai.ts, index.ts (StreamProvider)
+  providers/     adapters (openaiCompat.ts, anthropic.ts), presets.ts, index.ts (resolver)
   settings/      options page (provider + model + API key)
   shared/        types (message contract) + settings storage
 ```

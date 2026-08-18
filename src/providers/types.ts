@@ -1,23 +1,36 @@
 import type { ChatTurn } from '../shared/types';
 
+/** The two wire protocols we support. Every provider maps to one of these. */
+export type AdapterId = 'openai-compat' | 'anthropic';
+
+/** Everything an adapter needs to make one streaming call. */
 export interface StreamInput {
+  baseUrl: string;
   apiKey: string;
   model: string;
   system: string;
   messages: ChatTurn[];
+  /** Extra static headers from the preset (e.g. OpenRouter attribution). */
+  headers?: Record<string, string>;
   /** Called for each token/text delta as it streams in. */
   onDelta: (text: string) => void;
   /** Aborts the in-flight request. */
   signal?: AbortSignal;
 }
 
-export interface StreamProvider {
+/** An adapter knows how to talk one wire protocol against any base URL. */
+export interface Adapter {
   stream(input: StreamInput): Promise<void>;
+}
+
+/** Join a base URL and a path without doubling slashes. */
+export function joinUrl(base: string, path: string): string {
+  return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
 }
 
 /**
  * Parse a ReadableStream of Server-Sent Events into individual `data:` payloads,
- * invoking `onEvent` with the raw string after `data: `. Shared by both providers.
+ * invoking `onEvent` with the raw string after `data: `. Shared by both adapters.
  */
 export async function readSSE(
   response: Response,
@@ -45,5 +58,15 @@ export async function readSSE(
         }
       }
     }
+  }
+}
+
+export async function describeError(name: string, response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const msg = body?.error?.message ?? body?.error ?? JSON.stringify(body);
+    return `${name} error (${response.status}): ${msg}`;
+  } catch {
+    return `${name} error (${response.status}).`;
   }
 }

@@ -1,18 +1,45 @@
 // Shared contract between the content script, background worker, and providers.
 
-export type ProviderId = 'claude' | 'openai';
-
-export interface Settings {
-  provider: ProviderId;
-  model: string;
-  apiKey: string;
-}
+import type { AdapterId } from '../providers/types';
 
 /** A single turn in the per-selection mini-conversation. */
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
 }
+
+/** Per-provider saved config: its own key + model (+ optional base URL override). */
+export interface ProviderConfig {
+  apiKey: string;
+  model: string;
+  /** Overrides the preset base URL (used by local/custom providers). */
+  baseUrl?: string;
+}
+
+/** A user-defined provider. Shaped like a preset but stored in settings. */
+export interface CustomProvider {
+  id: string;
+  label: string;
+  adapter: AdapterId;
+  baseUrl: string;
+  defaultModel: string;
+  apiKeyRequired: boolean;
+}
+
+export interface Settings {
+  /** id of the currently selected provider (built-in preset or custom). */
+  activeProviderId: string;
+  /** Per-provider config keyed by provider id. */
+  configs: Record<string, ProviderConfig>;
+  /** Providers the user added themselves. */
+  customProviders: CustomProvider[];
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  activeProviderId: 'anthropic',
+  configs: {},
+  customProviders: [],
+};
 
 /** content -> background, sent once when a question is asked (over a port). */
 export interface AskRequest {
@@ -33,17 +60,6 @@ export type StreamMessage =
 
 /** Name of the port opened per ask request. */
 export const ASK_PORT = 'ai-companion-ask';
-
-export const DEFAULT_MODELS: Record<ProviderId, string> = {
-  claude: 'claude-sonnet-5',
-  openai: 'gpt-4o',
-};
-
-export const DEFAULT_SETTINGS: Settings = {
-  provider: 'claude',
-  model: DEFAULT_MODELS.claude,
-  apiKey: '',
-};
 
 /** Quick actions shown in the popover; each maps to a preset question. */
 export const QUICK_ACTIONS: { label: string; question: string }[] = [

@@ -103,11 +103,12 @@
     </div>
     <div class="arrow"><span>▼  HTTPS · stream: true</span></div>
     <div class="node n-provider">
-      <h3>AI Provider <span class="badge">configurable</span></h3>
+      <h3>AI Provider <span class="badge">config-driven registry</span></h3>
       <ul>
-        <li><b>Claude</b> — Anthropic Messages API (SSE <code>content_block_delta</code>)</li>
-        <li><b>OpenAI</b> — Chat Completions API (SSE <code>choices[].delta</code>)</li>
-        <li>Same <code>StreamProvider</code> interface — swapping is a settings change</li>
+        <li><b>2 adapters</b> = 2 wire protocols: <code>anthropic</code> (SSE <code>content_block_delta</code>) &amp; <code>openai-compat</code> (SSE <code>choices[].delta</code>)</li>
+        <li><b>Presets</b> map a provider → adapter + baseUrl + model: Anthropic, OpenAI, OpenRouter, Groq, Together, Mistral, DeepSeek, xAI, Perplexity, Gemini, Ollama, LM Studio</li>
+        <li><b>Custom providers</b> added in Settings (base URL + model) need no code</li>
+        <li><code>resolveActive(settings)</code> picks adapter + per-provider key/model</li>
       </ul>
     </div>
   </div>

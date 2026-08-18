@@ -1,11 +1,12 @@
-import { readSSE, type StreamInput, type StreamProvider } from './types';
+import { describeError, joinUrl, readSSE, type Adapter, type StreamInput } from './types';
 
-const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
-export const claudeProvider: StreamProvider = {
-  async stream({ apiKey, model, system, messages, onDelta, signal }: StreamInput) {
-    const response = await fetch(ENDPOINT, {
+// Anthropic Messages API (Claude). Also works for any Anthropic-compatible
+// gateway if its base URL is set.
+export const anthropicAdapter: Adapter = {
+  async stream({ baseUrl, apiKey, model, system, messages, headers, onDelta, signal }: StreamInput) {
+    const response = await fetch(joinUrl(baseUrl, 'v1/messages'), {
       method: 'POST',
       signal,
       headers: {
@@ -14,6 +15,7 @@ export const claudeProvider: StreamProvider = {
         'anthropic-version': API_VERSION,
         // Required to call the API directly from an extension origin.
         'anthropic-dangerous-direct-browser-access': 'true',
+        ...headers,
       },
       body: JSON.stringify({
         model,
@@ -24,9 +26,7 @@ export const claudeProvider: StreamProvider = {
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(await describeError(response));
-    }
+    if (!response.ok) throw new Error(await describeError('Claude', response));
 
     await readSSE(response, (data) => {
       if (data === '[DONE]') return;
@@ -44,13 +44,3 @@ export const claudeProvider: StreamProvider = {
     });
   },
 };
-
-async function describeError(response: Response): Promise<string> {
-  try {
-    const body = await response.json();
-    const msg = body?.error?.message ?? JSON.stringify(body);
-    return `Claude API error (${response.status}): ${msg}`;
-  } catch {
-    return `Claude API error (${response.status}).`;
-  }
-}
