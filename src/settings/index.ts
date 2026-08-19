@@ -1,4 +1,4 @@
-import { allProviders, findProvider, BUILTIN_PRESETS } from '../providers';
+import { allProviders, findProvider, resolveActive, BUILTIN_PRESETS } from '../providers';
 import { ADAPTER_OPTIONS } from '../providers/presets';
 import { loadSettings, saveSettings } from '../shared/settings';
 import type { AdapterId, } from '../providers/types';
@@ -16,6 +16,7 @@ const keyHintEl = $<HTMLDivElement>('key-hint');
 const baseUrlEl = $<HTMLInputElement>('baseUrl');
 const baseurlHintEl = $<HTMLDivElement>('baseurl-hint');
 const saveEl = $<HTMLButtonElement>('save');
+const testEl = $<HTMLButtonElement>('test');
 const removeEl = $<HTMLButtonElement>('remove');
 const statusEl = $<HTMLDivElement>('status');
 
@@ -115,6 +116,53 @@ saveEl.addEventListener('click', async () => {
   captureCurrent();
   await saveSettings(settings);
   flash(statusEl, 'Saved ✓', '#2fae6b');
+});
+
+testEl.addEventListener('click', async () => {
+  captureCurrent();
+  const resolved = resolveActive(settings);
+  if (!resolved) {
+    flash(statusEl, 'No provider selected.', '#d1435b');
+    return;
+  }
+  if (resolved.preset.apiKeyRequired && !resolved.apiKey) {
+    flash(statusEl, 'Add an API key first.', '#d1435b');
+    return;
+  }
+
+  testEl.disabled = true;
+  saveEl.disabled = true;
+  flash(statusEl, 'Testing…', '#8791a5');
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    let gotOutput = false;
+    await resolved.adapter.stream({
+      baseUrl: resolved.baseUrl,
+      apiKey: resolved.apiKey,
+      model: resolved.model,
+      headers: resolved.headers,
+      system: 'Reply with the single word OK.',
+      messages: [{ role: 'user', content: 'ping' }],
+      signal: controller.signal,
+      onDelta: () => {
+        gotOutput = true;
+      },
+    });
+    flash(statusEl, gotOutput ? 'Connected ✓' : 'Connected (no output) ✓', '#2fae6b');
+  } catch (err) {
+    const msg = controller.signal.aborted
+      ? 'Timed out after 20s.'
+      : err instanceof Error
+        ? err.message
+        : 'Connection failed.';
+    flash(statusEl, msg, '#d1435b');
+  } finally {
+    window.clearTimeout(timeout);
+    testEl.disabled = false;
+    saveEl.disabled = false;
+  }
 });
 
 removeEl.addEventListener('click', async () => {

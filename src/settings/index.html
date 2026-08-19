@@ -42,6 +42,9 @@
     }
     button:hover { filter: brightness(1.05); }
     button.ghost { background: none; color: #d1435b; font-weight: 600; padding: 8px 0; }
+    button.secondary { background: none; color: #6d7cff; border: 1px solid #d9deea; }
+    button:disabled { opacity: .55; cursor: default; filter: none; }
+    @media (prefers-color-scheme: dark) { button.secondary { border-color: #2a3346 !important; } }
     .actions { margin-top: 22px; display: flex; gap: 10px; }
     .actions button.save { flex: 1; }
     .status { text-align: center; font-size: 13px; margin-top: 12px; min-height: 18px; color: #2fae6b; }
@@ -78,6 +81,7 @@
 
     <div class="actions">
       <button class="save" id="save">Save settings</button>
+      <button class="secondary" id="test">Test</button>
       <button class="ghost hidden" id="remove">Remove</button>
     </div>
     <div class="status" id="status"></div>
