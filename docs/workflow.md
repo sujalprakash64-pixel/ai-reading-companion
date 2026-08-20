@@ -13,8 +13,12 @@
 - Compact **popover** with quick actions and a free-text input.
 - Quick actions: **Explain**, **Summarize**, **What does this mean?**, **Challenge this**.
 - Context sent to the AI: **selected text + page title + page URL**.
+- **Loading indicator** (animated dots) shown from submit until the first token arrives.
 - **Streamed** answer rendered as markdown inside the popover.
-- **Follow-up** questions in the same popover (a mini-conversation per selection).
+- **Follow-up** questions in the same popover, rendered as a **scrollable transcript** —
+  earlier turns stay visible above; scroll up to review the whole conversation.
+- **Conversation persistence**: closing and reopening the box on the **same selection**
+  restores the full transcript.
 - **Settings page**: choose provider (Claude / OpenAI), model, and enter an API key.
 - API key stored locally in `chrome.storage.local`. **No backend.**
 
@@ -207,14 +211,19 @@ Each provider keeps its **own** key and model, so switching never loses credenti
 2. User clicks button → popover opens, showing the selection as a context chip + quick
    actions + input.
 3. User picks a quick action or types a question and submits.
-4. Content script opens a `runtime.connect` port and posts an `AskRequest`.
-5. Background worker loads settings, resolves the active provider (adapter + base URL +
+4. The question is appended to the transcript as a user bubble, and an assistant bubble
+   with an **animated loader** is shown immediately.
+5. Content script opens a `runtime.connect` port and posts an `AskRequest`.
+6. Background worker loads settings, resolves the active provider (adapter + base URL +
    key + model), and builds the prompt.
-6. The adapter streams tokens; worker forwards each as a `CHUNK` over the port.
-7. Content script appends deltas, rendering markdown live.
-8. On `DONE`, the turn is stored in the popover's in-memory history for follow-ups.
-9. Errors (missing key, HTTP error) come back as `ERROR` and render inline with a link
-   to Settings.
+7. The adapter streams tokens; worker forwards each as a `CHUNK` over the port.
+8. On the first `CHUNK` the loader is replaced by the streaming answer, which renders as
+   markdown live with a blinking caret.
+9. On `DONE`, the turn is appended to the transcript and to the conversation history
+   (used for follow-ups and restored on reopen). Follow-ups append below; scroll up for
+   earlier turns.
+10. Errors (missing key, HTTP error) come back as `ERROR` and render inline as an error
+    bubble with a link to Settings.
 
 ---
 

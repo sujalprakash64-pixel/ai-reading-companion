@@ -24,10 +24,15 @@ document.documentElement.appendChild(host);
 // ---- State ----
 let button: HTMLButtonElement | null = null;
 let popover: HTMLDivElement | null = null;
+let thread: HTMLDivElement | null = null;
 let lastSelectionText = '';
 let history: ChatTurn[] = [];
 let activePort: chrome.runtime.Port | null = null;
 let requestCounter = 0;
+
+// The most recent conversation, kept so closing and reopening the box on the
+// same selection restores the full transcript (scroll up to see history).
+let saved: { selection: string; turns: ChatTurn[] } | null = null;
 
 // ---- Selection detection ----
 let debounce: number | undefined;
@@ -92,7 +97,9 @@ function hideButton(): void {
 function openPopover(rect: DOMRect): void {
   hideButton();
   hidePopover();
-  history = [];
+
+  // Restore the prior conversation if reopening on the same selection.
+  history = saved && saved.selection === lastSelectionText ? [...saved.turns] : [];
 
   popover = document.createElement('div');
   popover.className = 'ai-pop';
@@ -107,12 +114,14 @@ function openPopover(rect: DOMRect): void {
     </div>
     <div class="ai-context">${escapeText(contextPreview)}</div>
     <div class="ai-quick"></div>
-    <div class="ai-answer"></div>
+    <div class="ai-thread"></div>
     <form class="ai-form">
       <textarea class="ai-input" rows="1" placeholder="Ask anything about this…"></textarea>
       <button class="ai-send" type="submit" title="Ask">➤</button>
     </form>
   `;
+
+  thread = popover.querySelector('.ai-thread') as HTMLDivElement;
 
   const quick = popover.querySelector('.ai-quick')!;
   for (const action of QUICK_ACTIONS) {
@@ -120,6 +129,12 @@ function openPopover(rect: DOMRect): void {
     b.textContent = action.label;
     b.addEventListener('click', () => ask(action.question));
     quick.appendChild(b);
+  }
+
+  // Re-render any restored turns so the user can scroll up through history.
+  for (const turn of history) {
+    if (turn.role === 'user') appendUserMessage(turn.content);
+    else finalizeAssistant(appendAssistantMessage(), turn.content);
   }
 
   popover.querySelector('.close')!.addEventListener('click', hidePopover);
@@ -168,16 +183,46 @@ function position(el: HTMLElement, rect: DOMRect): void {
 function hidePopover(): void {
   activePort?.disconnect();
   activePort = null;
+  // Persist the conversation so reopening on the same selection restores it.
+  if (history.length) saved = { selection: lastSelectionText, turns: [...history] };
   popover?.remove();
   popover = null;
+  thread = null;
+}
+
+// ---- Transcript helpers ----
+function appendUserMessage(text: string): void {
+  const el = document.createElement('div');
+  el.className = 'ai-msg user';
+  el.textContent = text;
+  thread!.appendChild(el);
+}
+
+/** Adds an assistant bubble showing a loader; returns it for streaming into. */
+function appendAssistantMessage(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ai-msg assistant';
+  el.innerHTML = '<div class="ai-loader"><span></span><span></span><span></span></div>';
+  thread!.appendChild(el);
+  return el;
+}
+
+function finalizeAssistant(el: HTMLElement, markdown: string): void {
+  el.classList.remove('ai-cursor');
+  el.innerHTML = renderMarkdown(markdown);
+}
+
+function scrollThreadToBottom(): void {
+  if (thread) thread.scrollTop = thread.scrollHeight;
 }
 
 // ---- Ask → stream ----
 function ask(question: string): void {
-  if (!popover) return;
-  const answerEl = popover.querySelector('.ai-answer') as HTMLElement;
-  answerEl.className = 'ai-answer ai-cursor';
-  answerEl.innerHTML = '';
+  if (!popover || !thread) return;
+
+  appendUserMessage(question);
+  const answerEl = appendAssistantMessage();
+  scrollThreadToBottom();
 
   // Close any prior stream for this popover.
   activePort?.disconnect();
@@ -191,21 +236,27 @@ function ask(question: string): void {
     if (msg.requestId !== requestId) return;
     if (msg.type === 'CHUNK') {
       acc += msg.delta;
+      // The first token's innerHTML replaces the loader; keep a blinking caret.
       answerEl.innerHTML = renderMarkdown(acc);
-      answerEl.scrollTop = answerEl.scrollHeight;
+      answerEl.classList.add('ai-cursor');
+      scrollThreadToBottom();
     } else if (msg.type === 'DONE') {
-      answerEl.className = 'ai-answer';
+      answerEl.classList.remove('ai-cursor');
+      if (!acc) answerEl.innerHTML = '<em>No response.</em>';
       history.push({ role: 'user', content: question });
       history.push({ role: 'assistant', content: acc });
+      saved = { selection: lastSelectionText, turns: [...history] };
+      scrollThreadToBottom();
       port.disconnect();
       if (activePort === port) activePort = null;
     } else if (msg.type === 'ERROR') {
-      answerEl.className = 'ai-error';
+      answerEl.className = 'ai-msg error';
       answerEl.innerHTML = `${escapeText(msg.message)} `;
       const link = document.createElement('a');
       link.textContent = 'Open settings';
       link.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' }));
       answerEl.appendChild(link);
+      scrollThreadToBottom();
       port.disconnect();
       if (activePort === port) activePort = null;
     }
