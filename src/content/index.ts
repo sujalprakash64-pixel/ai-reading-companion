@@ -34,21 +34,53 @@ let requestCounter = 0;
 // same selection restores the full transcript (scroll up to see history).
 let saved: { selection: string; turns: ChatTurn[] } | null = null;
 
+// ---- Extension-context safety ----
+// If the extension is reloaded/updated while this (now stale) content script is
+// still on the page, any chrome.* call throws "Extension context invalidated".
+// Guard every such call; when the context is dead, tear ourselves down.
+function extensionAlive(): boolean {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+let torndown = false;
+function teardown(): void {
+  if (torndown) return;
+  torndown = true;
+  document.removeEventListener('selectionchange', onSelectionChange);
+  document.removeEventListener('mousedown', onDocMouseDown);
+  try {
+    host.remove();
+  } catch {
+    /* already gone */
+  }
+}
+
 // ---- Selection detection ----
 let debounce: number | undefined;
-document.addEventListener('selectionchange', () => {
+function onSelectionChange(): void {
   window.clearTimeout(debounce);
   debounce = window.setTimeout(maybeShowButton, 120);
-});
-document.addEventListener('mousedown', (e) => {
+}
+function onDocMouseDown(e: MouseEvent): void {
   // Clicking outside our UI dismisses everything.
   if (!e.composedPath().includes(host)) {
     hideButton();
     hidePopover();
   }
-});
+}
+document.addEventListener('selectionchange', onSelectionChange);
+document.addEventListener('mousedown', onDocMouseDown);
 
 function maybeShowButton(): void {
+  // A stale script (extension was reloaded) should quietly remove itself.
+  if (!extensionAlive()) {
+    teardown();
+    return;
+  }
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed) {
     hideButton();
@@ -224,23 +256,50 @@ function ask(question: string): void {
   const answerEl = appendAssistantMessage();
   scrollThreadToBottom();
 
+  if (!extensionAlive()) {
+    showReloadNotice(answerEl);
+    return;
+  }
+
   // Close any prior stream for this popover.
-  activePort?.disconnect();
-  const port = chrome.runtime.connect({ name: ASK_PORT });
+  try {
+    activePort?.disconnect();
+  } catch {
+    /* stale port */
+  }
+
+  let port: chrome.runtime.Port;
+  try {
+    port = chrome.runtime.connect({ name: ASK_PORT });
+  } catch {
+    showReloadNotice(answerEl);
+    return;
+  }
   activePort = port;
 
   const requestId = `req-${++requestCounter}`;
   let acc = '';
+  let settled = false;
+
+  port.onDisconnect.addListener(() => {
+    // Reading lastError silences "Unchecked runtime.lastError" noise.
+    void chrome.runtime.lastError;
+    if (activePort === port) activePort = null;
+    // Disconnected before any result → the extension context likely died.
+    if (!settled) showReloadNotice(answerEl);
+  });
 
   port.onMessage.addListener((msg: StreamMessage) => {
     if (msg.requestId !== requestId) return;
     if (msg.type === 'CHUNK') {
+      settled = true;
       acc += msg.delta;
       // The first token's innerHTML replaces the loader; keep a blinking caret.
       answerEl.innerHTML = renderMarkdown(acc);
       answerEl.classList.add('ai-cursor');
       scrollThreadToBottom();
     } else if (msg.type === 'DONE') {
+      settled = true;
       answerEl.classList.remove('ai-cursor');
       if (!acc) answerEl.innerHTML = '<em>No response.</em>';
       history.push({ role: 'user', content: question });
@@ -250,11 +309,12 @@ function ask(question: string): void {
       port.disconnect();
       if (activePort === port) activePort = null;
     } else if (msg.type === 'ERROR') {
+      settled = true;
       answerEl.className = 'ai-msg error';
       answerEl.innerHTML = `${escapeText(msg.message)} `;
       const link = document.createElement('a');
       link.textContent = 'Open settings';
-      link.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' }));
+      link.addEventListener('click', openOptions);
       answerEl.appendChild(link);
       scrollThreadToBottom();
       port.disconnect();
@@ -271,10 +331,27 @@ function ask(question: string): void {
     question,
     history: [...history],
   };
-  port.postMessage(req);
+  try {
+    port.postMessage(req);
+  } catch {
+    showReloadNotice(answerEl);
+  }
 }
 
 // ---- helpers ----
+function showReloadNotice(el: HTMLElement): void {
+  el.className = 'ai-msg error';
+  el.textContent = 'The extension was updated — refresh this page to continue.';
+}
+
+function openOptions(): void {
+  try {
+    if (extensionAlive()) chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
+  } catch {
+    /* context gone */
+  }
+}
+
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
